@@ -13,10 +13,11 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import AppLayout from '@/layouts/app-layout';
 import DocumentController from '@/actions/App/Http/Controllers/DocumentController';
-import { index, show } from '@/routes/documents';
+import { edit, index, show } from '@/routes/documents';
 import { type BreadcrumbItem, type Document, type Office } from '@/types';
-import { Form, Head, Link } from '@inertiajs/react';
+import { useForm, Head, Link } from '@inertiajs/react';
 import { ArrowLeft } from 'lucide-react';
+import { FormEvent } from 'react';
 
 interface DocumentsEditProps {
     document: Document;
@@ -38,6 +39,26 @@ export default function DocumentsEdit({ document, offices }: DocumentsEditProps)
             href: '#',
         },
     ];
+
+    const { data, setData, put, processing, errors } = useForm({
+        title: document.title,
+        document_type: document.document_type as 'incoming' | 'outgoing' | 'internal',
+        source: document.source || '',
+        receiving_office_id: document.receiving_office_id || null,
+        priority: document.priority as 'low' | 'normal' | 'high' | 'urgent',
+        confidentiality: document.confidentiality as 'public' | 'confidential' | 'restricted',
+        status: document.status as 'draft' | 'registered' | 'in_transit' | 'received' | 'in_action' | 'completed' | 'archived' | 'returned',
+        date_received: document.date_received ? document.date_received.split('T')[0] : '',
+        date_due: document.date_due ? document.date_due.split('T')[0] : '',
+        description: document.description || '',
+    });
+
+    const handleSubmit = (e: FormEvent) => {
+        e.preventDefault();
+        put(DocumentController.update.url({ document: document.id }), {
+            preserveScroll: true,
+        });
+    };
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -63,170 +84,189 @@ export default function DocumentsEdit({ document, offices }: DocumentsEditProps)
                         <CardTitle>Document Information</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <Form {...DocumentController.update.form({ document: document.id })} className="space-y-6">
-                            {({ processing, errors, data, setData }) => (
-                                <>
-                                    <div className="grid gap-6 md:grid-cols-2">
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="title">
-                                                Title <span className="text-destructive">*</span>
-                                            </Label>
-                                            <Input
-                                                id="title"
-                                                name="title"
-                                                value={data.title ?? document.title}
-                                                onChange={(e) => setData('title', e.target.value)}
-                                                required
-                                                autoFocus
-                                            />
-                                            <InputError message={errors.title} />
-                                        </div>
+                        <form onSubmit={handleSubmit} className="space-y-6">
+                            <div className="grid gap-6 md:grid-cols-2">
+                                <div className="grid gap-2">
+                                    <Label htmlFor="title">
+                                        Title <span className="text-destructive">*</span>
+                                    </Label>
+                                    <Input
+                                        id="title"
+                                        name="title"
+                                        value={data.title}
+                                        onChange={(e) => setData('title', e.target.value)}
+                                        required
+                                        autoFocus
+                                    />
+                                    <InputError message={errors.title} />
+                                </div>
 
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="document_type">
-                                                Document Type <span className="text-destructive">*</span>
-                                            </Label>
-                                            <Select
-                                                value={data.document_type ?? document.document_type}
-                                                onValueChange={(value) => setData('document_type', value)}
-                                            >
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder="Select type" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="incoming">Incoming</SelectItem>
-                                                    <SelectItem value="outgoing">Outgoing</SelectItem>
-                                                    <SelectItem value="internal">Internal</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                            <InputError message={errors.document_type} />
-                                        </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="document_type">
+                                        Document Type <span className="text-destructive">*</span>
+                                    </Label>
+                                    <Select
+                                        value={data.document_type}
+                                        onValueChange={(value) => setData('document_type', value as 'incoming' | 'outgoing' | 'internal')}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select type" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="incoming">Incoming</SelectItem>
+                                            <SelectItem value="outgoing">Outgoing</SelectItem>
+                                            <SelectItem value="internal">Internal</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <InputError message={errors.document_type} />
+                                </div>
 
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="source">Source</Label>
-                                            <Input
-                                                id="source"
-                                                name="source"
-                                                value={data.source ?? document.source ?? ''}
-                                                onChange={(e) => setData('source', e.target.value)}
-                                                placeholder="Source office or external entity"
-                                            />
-                                            <InputError message={errors.source} />
-                                        </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="source">Source</Label>
+                                    <Input
+                                        id="source"
+                                        name="source"
+                                        value={data.source}
+                                        onChange={(e) => setData('source', e.target.value)}
+                                        placeholder="Source office or external entity"
+                                    />
+                                    <InputError message={errors.source} />
+                                </div>
 
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="priority">
-                                                Priority <span className="text-destructive">*</span>
-                                            </Label>
-                                            <Select
-                                                value={data.priority ?? document.priority}
-                                                onValueChange={(value) => setData('priority', value)}
-                                            >
-                                                <SelectTrigger>
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="low">Low</SelectItem>
-                                                    <SelectItem value="normal">Normal</SelectItem>
-                                                    <SelectItem value="high">High</SelectItem>
-                                                    <SelectItem value="urgent">Urgent</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                            <InputError message={errors.priority} />
-                                        </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="receiving_office_id">Receiving Office</Label>
+                                    <Select
+                                        value={data.receiving_office_id ? String(data.receiving_office_id) : 'none'}
+                                        onValueChange={(value) =>
+                                            setData('receiving_office_id', value === 'none' ? null : Number(value))
+                                        }
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Select office" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="none">None</SelectItem>
+                                            {offices.map((office) => (
+                                                <SelectItem key={office.id} value={String(office.id)}>
+                                                    {office.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <InputError message={errors.receiving_office_id} />
+                                </div>
 
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="confidentiality">
-                                                Confidentiality <span className="text-destructive">*</span>
-                                            </Label>
-                                            <Select
-                                                value={data.confidentiality ?? document.confidentiality}
-                                                onValueChange={(value) => setData('confidentiality', value)}
-                                            >
-                                                <SelectTrigger>
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="public">Public</SelectItem>
-                                                    <SelectItem value="confidential">Confidential</SelectItem>
-                                                    <SelectItem value="restricted">Restricted</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                            <InputError message={errors.confidentiality} />
-                                        </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="priority">
+                                        Priority <span className="text-destructive">*</span>
+                                    </Label>
+                                    <Select
+                                        value={data.priority}
+                                        onValueChange={(value) => setData('priority', value as 'low' | 'normal' | 'high' | 'urgent')}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="low">Low</SelectItem>
+                                            <SelectItem value="normal">Normal</SelectItem>
+                                            <SelectItem value="high">High</SelectItem>
+                                            <SelectItem value="urgent">Urgent</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <InputError message={errors.priority} />
+                                </div>
 
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="status">Status</Label>
-                                            <Select
-                                                value={data.status ?? document.status}
-                                                onValueChange={(value) => setData('status', value)}
-                                            >
-                                                <SelectTrigger>
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="draft">Draft</SelectItem>
-                                                    <SelectItem value="registered">Registered</SelectItem>
-                                                    <SelectItem value="in_transit">In Transit</SelectItem>
-                                                    <SelectItem value="received">Received</SelectItem>
-                                                    <SelectItem value="in_action">In Action</SelectItem>
-                                                    <SelectItem value="completed">Completed</SelectItem>
-                                                    <SelectItem value="archived">Archived</SelectItem>
-                                                    <SelectItem value="returned">Returned</SelectItem>
-                                                </SelectContent>
-                                            </Select>
-                                            <InputError message={errors.status} />
-                                        </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="confidentiality">
+                                        Confidentiality <span className="text-destructive">*</span>
+                                    </Label>
+                                    <Select
+                                        value={data.confidentiality}
+                                        onValueChange={(value) => setData('confidentiality', value as 'public' | 'confidential' | 'restricted')}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="public">Public</SelectItem>
+                                            <SelectItem value="confidential">Confidential</SelectItem>
+                                            <SelectItem value="restricted">Restricted</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <InputError message={errors.confidentiality} />
+                                </div>
 
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="date_received">Date Received</Label>
-                                            <Input
-                                                id="date_received"
-                                                type="date"
-                                                name="date_received"
-                                                value={data.date_received ?? document.date_received ?? ''}
-                                                onChange={(e) => setData('date_received', e.target.value)}
-                                            />
-                                            <InputError message={errors.date_received} />
-                                        </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="status">Status</Label>
+                                    <Select
+                                        value={data.status}
+                                        onValueChange={(value) => setData('status', value as 'draft' | 'registered' | 'in_transit' | 'received' | 'in_action' | 'completed' | 'archived' | 'returned')}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="draft">Draft</SelectItem>
+                                            <SelectItem value="registered">Registered</SelectItem>
+                                            <SelectItem value="in_transit">In Transit</SelectItem>
+                                            <SelectItem value="received">Received</SelectItem>
+                                            <SelectItem value="in_action">In Action</SelectItem>
+                                            <SelectItem value="completed">Completed</SelectItem>
+                                            <SelectItem value="archived">Archived</SelectItem>
+                                            <SelectItem value="returned">Returned</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                    <InputError message={errors.status} />
+                                </div>
 
-                                        <div className="grid gap-2">
-                                            <Label htmlFor="date_due">Date Due</Label>
-                                            <Input
-                                                id="date_due"
-                                                type="date"
-                                                name="date_due"
-                                                value={data.date_due ?? document.date_due ?? ''}
-                                                onChange={(e) => setData('date_due', e.target.value)}
-                                            />
-                                            <InputError message={errors.date_due} />
-                                        </div>
-                                    </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="date_received">Date Received</Label>
+                                    <Input
+                                        id="date_received"
+                                        type="date"
+                                        name="date_received"
+                                        value={data.date_received}
+                                        onChange={(e) => setData('date_received', e.target.value)}
+                                    />
+                                    <InputError message={errors.date_received} />
+                                </div>
 
-                                    <div className="grid gap-2">
-                                        <Label htmlFor="description">Description</Label>
-                                        <Textarea
-                                            id="description"
-                                            name="description"
-                                            value={data.description ?? document.description ?? ''}
-                                            onChange={(e) => setData('description', e.target.value)}
-                                            rows={4}
-                                            placeholder="Document description..."
-                                        />
-                                        <InputError message={errors.description} />
-                                    </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="date_due">Date Due</Label>
+                                    <Input
+                                        id="date_due"
+                                        type="date"
+                                        name="date_due"
+                                        value={data.date_due}
+                                        onChange={(e) => setData('date_due', e.target.value)}
+                                    />
+                                    <InputError message={errors.date_due} />
+                                </div>
+                            </div>
 
-                                    <div className="flex items-center justify-end gap-4">
-                                        <Button type="button" variant="outline" asChild>
-                                            <Link href={show(document.id).url}>Cancel</Link>
-                                        </Button>
-                                        <Button type="submit" disabled={processing}>
-                                            {processing ? 'Updating...' : 'Update Document'}
-                                        </Button>
-                                    </div>
-                                </>
-                            )}
-                        </Form>
+                            <div className="grid gap-2">
+                                <Label htmlFor="description">Description</Label>
+                                <Textarea
+                                    id="description"
+                                    name="description"
+                                    value={data.description}
+                                    onChange={(e) => setData('description', e.target.value)}
+                                    rows={4}
+                                    placeholder="Document description..."
+                                />
+                                <InputError message={errors.description} />
+                            </div>
+
+                            <div className="flex items-center justify-end gap-4">
+                                <Button type="button" variant="outline" asChild>
+                                    <Link href={show(document.id).url}>Cancel</Link>
+                                </Button>
+                                <Button type="submit" disabled={processing}>
+                                    {processing ? 'Updating...' : 'Update Document'}
+                                </Button>
+                            </div>
+                        </form>
                     </CardContent>
                 </Card>
             </div>

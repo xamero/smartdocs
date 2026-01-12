@@ -13,33 +13,11 @@ import {
 import { dashboard } from '@/routes';
 import { index as documentsIndex } from '@/routes/documents';
 import { index as officesIndex, my as myOffices } from '@/routes/offices';
-import { type NavItem } from '@/types';
-import { Link } from '@inertiajs/react';
-import { BookOpen, Folder, LayoutGrid, FileText, Building2 } from 'lucide-react';
+import { index as usersIndex } from '@/routes/users';
+import { type NavItem, type SharedData } from '@/types';
+import { Link, usePage } from '@inertiajs/react';
+import { BookOpen, Folder, LayoutGrid, FileText, Building2, Users } from 'lucide-react';
 import AppLogo from './app-logo';
-
-const mainNavItems: NavItem[] = [
-    {
-        title: 'Dashboard',
-        href: dashboard(),
-        icon: LayoutGrid,
-    },
-    {
-        title: 'Documents',
-        href: documentsIndex(),
-        icon: FileText,
-    },
-    {
-        title: 'Offices',
-        href: officesIndex(),
-        icon: Folder,
-    },
-    {
-        title: 'My Office',
-        href: myOffices(),
-        icon: Building2,
-    },
-];
 
 const footerNavItems: NavItem[] = [
     {
@@ -55,6 +33,40 @@ const footerNavItems: NavItem[] = [
 ];
 
 export function AppSidebar() {
+    const { auth } = usePage<SharedData>().props;
+    const isAdmin = auth?.user?.role === 'admin';
+
+    const mainNavItems: NavItem[] = [
+        {
+            title: 'Dashboard',
+            href: dashboard(),
+            icon: LayoutGrid,
+        },
+        {
+            title: 'Documents',
+            href: documentsIndex(),
+            icon: FileText,
+        },
+        {
+            title: 'Offices',
+            href: officesIndex(),
+            icon: Folder,
+        },
+        {
+            title: 'My Office',
+            href: myOffices(),
+            icon: Building2,
+        },
+    ];
+
+    if (isAdmin) {
+        mainNavItems.push({
+            title: 'Users',
+            href: usersIndex(),
+            icon: Users,
+        });
+    }
+
     return (
         <Sidebar collapsible="icon" variant="inset">
             <SidebarHeader>

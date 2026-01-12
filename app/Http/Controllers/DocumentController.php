@@ -89,6 +89,7 @@ class DocumentController extends Controller
     {
         return Inertia::render('Documents/Create', [
             'offices' => Office::where('is_active', true)->orderBy('name')->get(),
+           
         ]);
     }
 

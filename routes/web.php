@@ -43,6 +43,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('offices/my', [\App\Http\Controllers\OfficeController::class, 'my'])->name('offices.my');
     Route::resource('offices', \App\Http\Controllers\OfficeController::class)->except(['show', 'create', 'edit']);
 
+    // Users
+    Route::resource('users', \App\Http\Controllers\UserController::class);
+
     // Notifications
     Route::get('notifications', [\App\Http\Controllers\NotificationController::class, 'index'])->name('notifications.index');
     Route::get('notifications/unread-count', [\App\Http\Controllers\NotificationController::class, 'unreadCount'])->name('notifications.unread-count');

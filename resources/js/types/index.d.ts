@@ -40,8 +40,11 @@ export interface User {
     created_at: string;
     updated_at: string;
     role?: 'admin' | 'encoder' | 'approver' | 'viewer';
-    office_id?: number;
+    office_id?: number | null;
     is_active?: boolean;
+    last_login_at?: string | null;
+    last_login_ip?: string | null;
+    office?: Office | null;
     [key: string]: unknown; // This allows for additional properties...
 }
 

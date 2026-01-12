@@ -1,11 +1,31 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+    DialogTrigger,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
+import { Textarea } from '@/components/ui/textarea';
+import InputError from '@/components/input-error';
 import AppLayout from '@/layouts/app-layout';
-import { edit, index, show } from '@/routes/documents';
+import { edit, index, route, show } from '@/routes/documents';
 import { type BreadcrumbItem, type Document } from '@/types';
-import { Form, Head, Link, router } from '@inertiajs/react';
+import { Form, Head, Link, router, useForm } from '@inertiajs/react';
 import {
     ArrowLeft,
     FileText,
@@ -15,12 +35,13 @@ import {
     Building2,
     Clock,
 } from 'lucide-react';
+import { useState, FormEvent } from 'react';
 // Date formatting helper
 const formatRelativeTime = (date: string) => {
     const now = new Date();
     const then = new Date(date);
     const diffInSeconds = Math.floor((now.getTime() - then.getTime()) / 1000);
-    
+
     if (diffInSeconds < 60) return 'just now';
     if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)} minutes ago`;
     if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)} hours ago`;
@@ -36,6 +57,32 @@ interface DocumentsShowProps {
 }
 
 export default function DocumentsShow({ document, offices }: DocumentsShowProps) {
+    const [routeDialogOpen, setRouteDialogOpen] = useState(false);
+
+    const routeForm = useForm({
+        to_office_id: null as number | null,
+        remarks: '',
+    });
+
+    const handleRouteSubmit = (e: FormEvent) => {
+        e.preventDefault();
+
+        if (!routeForm.data.to_office_id) {
+            return;
+        }
+
+        routeForm.post(route.url(document.id), {
+            preserveScroll: true,
+            onSuccess: () => {
+                setRouteDialogOpen(false);
+                routeForm.reset();
+            },
+            onError: () => {
+                // Keep dialog open to show errors
+            },
+        });
+    };
+
     const getStatusBadgeVariant = (status: Document['status']) => {
         const variants: Record<Document['status'], 'default' | 'secondary' | 'destructive' | 'outline'> = {
             draft: 'outline',
@@ -195,7 +242,7 @@ export default function DocumentsShow({ document, offices }: DocumentsShowProps)
                                                     const now = new Date();
                                                     const isOverdue = due < now && !['completed', 'archived', 'returned'].includes(document.status);
                                                     const daysUntilDue = Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-                                                    
+
                                                     if (isOverdue) {
                                                         return (
                                                             <Badge variant="destructive" className="text-xs">
@@ -396,56 +443,125 @@ export default function DocumentsShow({ document, offices }: DocumentsShowProps)
                     </div>
 
                     <div className="space-y-4">
-                                <Card>
-                                    <CardHeader>
-                                        <CardTitle>Quick Actions</CardTitle>
-                                    </CardHeader>
-                                    <CardContent className="space-y-4">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Quick Actions</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <Dialog open={routeDialogOpen} onOpenChange={setRouteDialogOpen}>
+                                    <DialogTrigger asChild>
                                         <Button className="w-full justify-start" variant="outline">
                                             <Route className="size-4 mr-2" />
                                             Route Document
                                         </Button>
-                                        <Button className="w-full justify-start" variant="outline">
-                                            <FileText className="size-4 mr-2" />
-                                            Add Action
-                                        </Button>
-                                        <div className="space-y-2">
-                                            <p className="text-sm font-medium">Upload Attachment</p>
-                                            <Form
-                                                action={`/documents/${document.id}/attachments`}
-                                                method="post"
-                                                encType="multipart/form-data"
-                                            >
-                                                {({ processing, setData, errors }) => (
-                                                    <div className="space-y-2">
-                                                        <input
-                                                            type="file"
-                                                            name="file"
-                                                            onChange={(e) => {
-                                                                const file = e.currentTarget.files?.[0];
-                                                                if (file) {
-                                                                    setData('file', file);
-                                                                }
-                                                            }}
-                                                            className="block w-full text-sm"
-                                                        />
-                                                        {errors.file && (
-                                                            <p className="text-xs text-destructive">{errors.file}</p>
-                                                        )}
-                                                        <Button
-                                                            type="submit"
-                                                            size="sm"
-                                                            className="w-full justify-center"
-                                                            disabled={processing}
-                                                        >
-                                                            {processing ? 'Uploading...' : 'Upload'}
-                                                        </Button>
-                                                    </div>
+                                    </DialogTrigger>
+                                    <DialogContent>
+                                        <DialogHeader>
+                                            <DialogTitle>Route Document</DialogTitle>
+                                            <DialogDescription>
+                                                Select the destination office and add optional remarks for routing this document.
+                                            </DialogDescription>
+                                        </DialogHeader>
+                                        <form onSubmit={handleRouteSubmit} className="space-y-4">
+                                            <div className="grid gap-2">
+                                                <Label htmlFor="to_office_id">
+                                                    Destination Office <span className="text-destructive">*</span>
+                                                </Label>
+                                                <Select
+                                                    value={routeForm.data.to_office_id ? String(routeForm.data.to_office_id) : undefined}
+                                                    onValueChange={(value) => routeForm.setData('to_office_id', Number(value))}
+                                                >
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Select destination office" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {offices
+                                                            .filter((office) => office.id !== document.current_office_id)
+                                                            .map((office) => (
+                                                                <SelectItem key={office.id} value={String(office.id)}>
+                                                                    {office.name}
+                                                                </SelectItem>
+                                                            ))}
+                                                    </SelectContent>
+                                                </Select>
+                                                <InputError message={routeForm.errors.to_office_id} />
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                <Label htmlFor="remarks">Remarks (Optional)</Label>
+                                                <Textarea
+                                                    id="remarks"
+                                                    name="remarks"
+                                                    value={routeForm.data.remarks}
+                                                    onChange={(e) => routeForm.setData('remarks', e.target.value)}
+                                                    rows={4}
+                                                    placeholder="Add any remarks or notes about this routing..."
+                                                />
+                                                <InputError message={routeForm.errors.remarks} />
+                                            </div>
+
+                                            <DialogFooter>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    onClick={() => {
+                                                        setRouteDialogOpen(false);
+                                                        routeForm.reset();
+                                                    }}
+                                                >
+                                                    Cancel
+                                                </Button>
+                                                <Button
+                                                    type="submit"
+                                                    disabled={routeForm.processing || !routeForm.data.to_office_id}
+                                                >
+                                                    {routeForm.processing ? 'Routing...' : 'Route Document'}
+                                                </Button>
+                                            </DialogFooter>
+                                        </form>
+                                    </DialogContent>
+                                </Dialog>
+                                <Button className="w-full justify-start" variant="outline">
+                                    <FileText className="size-4 mr-2" />
+                                    Add Action
+                                </Button>
+                                <div className="space-y-2">
+                                    <p className="text-sm font-medium">Upload Attachment</p>
+                                    <Form
+                                        action={`/documents/${document.id}/attachments`}
+                                        method="post"
+                                        encType="multipart/form-data"
+                                    >
+                                        {({ processing, setData, errors }) => (
+                                            <div className="space-y-2">
+                                                <input
+                                                    type="file"
+                                                    name="file"
+                                                    onChange={(e) => {
+                                                        const file = e.currentTarget.files?.[0];
+                                                        if (file) {
+                                                            setData('file', file);
+                                                        }
+                                                    }}
+                                                    className="block w-full text-sm"
+                                                />
+                                                {errors.file && (
+                                                    <p className="text-xs text-destructive">{errors.file}</p>
                                                 )}
-                                            </Form>
-                                        </div>
-                                    </CardContent>
-                                </Card>
+                                                <Button
+                                                    type="submit"
+                                                    size="sm"
+                                                    className="w-full justify-center"
+                                                    disabled={processing}
+                                                >
+                                                    {processing ? 'Uploading...' : 'Upload'}
+                                                </Button>
+                                            </div>
+                                        )}
+                                    </Form>
+                                </div>
+                            </CardContent>
+                        </Card>
 
                         {document.qr_code && (
                             <Card>
