@@ -14,8 +14,11 @@ class RouteDocumentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'to_office_id' => ['required', 'exists:offices,id'],
+            'to_office_id' => ['required_without:to_office_ids', 'exists:offices,id'],
+            'to_office_ids' => ['required_without:to_office_id', 'array', 'min:1'],
+            'to_office_ids.*' => ['exists:offices,id'],
             'remarks' => ['nullable', 'string', 'max:1000'],
+            'create_copies' => ['sometimes', 'boolean'], // If true, create copies for each office
         ];
     }
 

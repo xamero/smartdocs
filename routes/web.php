@@ -19,6 +19,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::resource('documents', \App\Http\Controllers\DocumentController::class);
     Route::post('documents/{document}/route', [\App\Http\Controllers\DocumentRoutingController::class, 'store'])->name('documents.route');
     Route::post('documents/{document}/routings/{routing}/receive', [\App\Http\Controllers\DocumentRoutingController::class, 'receive'])->name('documents.routings.receive');
+    Route::delete('documents/{document}/routings/{routing}/cancel', [\App\Http\Controllers\DocumentRoutingController::class, 'cancel'])->name('documents.routings.cancel');
     Route::post('documents/{document}/actions', [\App\Http\Controllers\DocumentActionController::class, 'store'])->name('documents.actions.store');
     Route::post('documents/{document}/attachments', [\App\Http\Controllers\DocumentAttachmentController::class, 'store'])->name('documents.attachments.store');
     Route::get('documents/{document}/attachments/{attachment}/download', [\App\Http\Controllers\DocumentAttachmentController::class, 'download'])->name('documents.attachments.download');
@@ -54,4 +55,4 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('notifications/read-all', [\App\Http\Controllers\NotificationController::class, 'markAllAsRead'])->name('notifications.read-all');
 });
 
-require __DIR__ . '/settings.php';
+require __DIR__.'/settings.php';

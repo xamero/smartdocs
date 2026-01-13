@@ -1,6 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
     Dialog,
     DialogContent,
@@ -23,9 +23,9 @@ import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 import InputError from '@/components/input-error';
 import AppLayout from '@/layouts/app-layout';
-import { edit, index, route, show } from '@/routes/documents';
-import { type BreadcrumbItem, type Document } from '@/types';
-import { Form, Head, Link, router, useForm } from '@inertiajs/react';
+import { edit, index, route, show, actions } from '@/routes/documents';
+import { type BreadcrumbItem, type Document, type DocumentRouting } from '@/types';
+import { Form, Head, Link, router, useForm, usePage } from '@inertiajs/react';
 import {
     ArrowLeft,
     FileText,
@@ -34,8 +34,10 @@ import {
     User,
     Building2,
     Clock,
+    CheckCircle,
 } from 'lucide-react';
 import { useState, FormEvent } from 'react';
+import { Checkbox } from '@/components/ui/checkbox';
 // Date formatting helper
 const formatRelativeTime = (date: string) => {
     const now = new Date();
@@ -51,31 +53,101 @@ const formatRelativeTime = (date: string) => {
     return `${Math.floor(diffInSeconds / 31536000)} years ago`;
 };
 
+// Calculate routing time between routed_at and received_at
+const calculateRoutingTime = (routedAt: string, receivedAt?: string): string | null => {
+    if (!receivedAt) return null;
+
+    const routed = new Date(routedAt);
+    const received = new Date(receivedAt);
+    const diffInMs = received.getTime() - routed.getTime();
+    const diffInHours = diffInMs / (1000 * 60 * 60);
+    const diffInDays = diffInMs / (1000 * 60 * 60 * 24);
+
+    if (diffInHours < 1) {
+        const minutes = Math.floor(diffInMs / (1000 * 60));
+        return `${minutes} minute${minutes !== 1 ? 's' : ''}`;
+    }
+    if (diffInDays < 1) {
+        return `${Math.round(diffInHours * 10) / 10} hour${diffInHours !== 1 ? 's' : ''}`;
+    }
+    return `${Math.round(diffInDays * 10) / 10} day${diffInDays !== 1 ? 's' : ''}`;
+};
+
 interface DocumentsShowProps {
     document: Document;
     offices: Array<{ id: number; name: string }>;
+    receivableRouting?: DocumentRouting | null;
+    isOriginatingOffice?: boolean;
+    isIncomingToOffice?: boolean;
+    outgoingRouting?: DocumentRouting | null;
+    isInTransitToOtherOffice?: boolean;
 }
 
-export default function DocumentsShow({ document, offices }: DocumentsShowProps) {
+export default function DocumentsShow({ document, offices, receivableRouting, isOriginatingOffice, isIncomingToOffice, outgoingRouting, isInTransitToOtherOffice }: DocumentsShowProps) {
+    const { auth } = usePage<{ auth: { user: { id: number; office_id?: number | null; role: string } } }>().props;
     const [routeDialogOpen, setRouteDialogOpen] = useState(false);
+    const [actionDialogOpen, setActionDialogOpen] = useState(false);
 
     const routeForm = useForm({
         to_office_id: null as number | null,
+        to_office_ids: [] as number[],
         remarks: '',
+        create_copies: false,
+    });
+
+    const actionForm = useForm({
+        action_type: '' as 'approve' | 'note' | 'comply' | 'sign' | 'return' | 'forward' | '',
+        remarks: '',
+        memo_file: null as File | null,
+        is_office_head_approval: false,
     });
 
     const handleRouteSubmit = (e: FormEvent) => {
         e.preventDefault();
 
-        if (!routeForm.data.to_office_id) {
+        if (!routeForm.data.to_office_id && (!routeForm.data.to_office_ids || routeForm.data.to_office_ids.length === 0)) {
             return;
         }
 
+        // Prepare the data to send
+        const formData: any = {
+            remarks: routeForm.data.remarks || '',
+        };
+
+        if (routeForm.data.create_copies && routeForm.data.to_office_ids && routeForm.data.to_office_ids.length > 0) {
+            formData.to_office_ids = routeForm.data.to_office_ids;
+            formData.create_copies = true;
+        } else if (routeForm.data.to_office_id) {
+            formData.to_office_id = routeForm.data.to_office_id;
+            formData.create_copies = false;
+        }
+
+        routeForm.transform(() => formData);
         routeForm.post(route.url(document.id), {
             preserveScroll: true,
             onSuccess: () => {
                 setRouteDialogOpen(false);
                 routeForm.reset();
+            },
+            onError: () => {
+                // Keep dialog open to show errors
+            },
+        });
+    };
+
+    const handleActionSubmit = (e: FormEvent) => {
+        e.preventDefault();
+
+        if (!actionForm.data.action_type) {
+            return;
+        }
+
+        actionForm.post(actions.store.url(document.id), {
+            preserveScroll: true,
+            forceFormData: true,
+            onSuccess: () => {
+                setActionDialogOpen(false);
+                actionForm.reset();
             },
             onError: () => {
                 // Keep dialog open to show errors
@@ -130,6 +202,13 @@ export default function DocumentsShow({ document, offices }: DocumentsShowProps)
         },
     ];
 
+    // Determine if Route Document and Add Action should be disabled
+    // Disable if:
+    // 1. Document is not received (status is not 'received')
+    // 2. Document is in transit to another office
+    const isDocumentReceived = document.status === 'received';
+    const shouldDisableQuickActions = !isDocumentReceived || (isInTransitToOtherOffice ?? false);
+
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={document.title} />
@@ -151,6 +230,12 @@ export default function DocumentsShow({ document, offices }: DocumentsShowProps)
                                 <Badge variant={getPriorityBadgeVariant(document.priority)}>
                                     {document.priority}
                                 </Badge>
+                                {isOriginatingOffice && (
+                                    <Badge variant="outline">From your office</Badge>
+                                )}
+                                {!isOriginatingOffice && isIncomingToOffice && (
+                                    <Badge variant="secondary">Incoming to your office</Badge>
+                                )}
                             </div>
                             <p className="text-muted-foreground text-sm">
                                 Tracking Number: <span className="font-mono font-medium">{document.tracking_number}</span>
@@ -158,33 +243,62 @@ export default function DocumentsShow({ document, offices }: DocumentsShowProps)
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <Button variant="outline" asChild>
-                            <Link href={edit(document.id).url}>Edit</Link>
-                        </Button>
-                        {!document.is_archived && (
+                        {/* Edit button - only for creating office or admin */}
+                        {(auth.user?.role === 'admin' ||
+                            (document.creator && document.creator.office_id === auth.user?.office_id)) && (
+                                <Button variant="outline" asChild>
+                                    <Link href={edit(document.id).url}>Edit</Link>
+                                </Button>
+                            )}
+
+                        {/* Archive/Restore button - only for creating office or admin */}
+                        {(auth.user?.role === 'admin' ||
+                            (document.creator && document.creator.office_id === auth.user?.office_id)) && (
+                                <>
+                                    {!document.is_archived && (
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => {
+                                                if (confirm('Archive this document? It will be moved to the archive.')) {
+                                                    router.post(`/documents/${document.id}/archive`);
+                                                }
+                                            }}
+                                        >
+                                            Archive
+                                        </Button>
+                                    )}
+                                    {document.is_archived && (
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => {
+                                                if (confirm('Restore this document from the archive?')) {
+                                                    router.post(`/documents/${document.id}/restore`);
+                                                }
+                                            }}
+                                        >
+                                            Restore
+                                        </Button>
+                                    )}
+                                </>
+                            )}
+
+                        {/* Receive button - for latest in-transit/pending routing to user's office */}
+                        {receivableRouting && (
                             <Button
-                                variant="outline"
+                                variant="default"
                                 onClick={() => {
-                                    if (confirm('Archive this document? It will be moved to the archive.')) {
-                                        router.post(`/documents/${document.id}/archive`);
+                                    if (confirm('Mark this document as received by your office?')) {
+                                        router.post(`/documents/${document.id}/routings/${receivableRouting.id}/receive`, {}, {
+                                            preserveScroll: true,
+                                        });
                                     }
                                 }}
                             >
-                                Archive
+                                <CheckCircle className="size-4 mr-2" />
+                                Receive Document
                             </Button>
                         )}
-                        {document.is_archived && (
-                            <Button
-                                variant="outline"
-                                onClick={() => {
-                                    if (confirm('Restore this document from the archive?')) {
-                                        router.post(`/documents/${document.id}/restore`);
-                                    }
-                                }}
-                            >
-                                Restore
-                            </Button>
-                        )}
+
                         {document.qr_code && (
                             <Button variant="outline">
                                 <QrCode className="size-4 mr-2" />
@@ -311,12 +425,40 @@ export default function DocumentsShow({ document, offices }: DocumentsShowProps)
                             </CardContent>
                         </Card>
 
+                        {/* Show parent document link if this is a copy */}
+                        {document.is_copy && document.parent_document && (
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <FileText className="size-5" />
+                                        Parent Document
+                                    </CardTitle>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <p className="font-medium">{document.parent_document.title}</p>
+                                            <p className="text-sm text-muted-foreground">
+                                                Tracking: {document.parent_document.tracking_number}
+                                            </p>
+                                        </div>
+                                        <Button variant="outline" size="sm" asChild>
+                                            <Link href={show(document.parent_document.id).url}>
+                                                View Parent
+                                            </Link>
+                                        </Button>
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        )}
+
+                        {/* Main Document Routing History */}
                         {document.routings && document.routings.length > 0 && (
                             <Card>
                                 <CardHeader>
                                     <CardTitle className="flex items-center gap-2">
                                         <Route className="size-5" />
-                                        Routing History
+                                        {document.is_copy ? 'Copy Routing History' : 'Main Document Routing History'}
                                     </CardTitle>
                                 </CardHeader>
                                 <CardContent>
@@ -347,14 +489,121 @@ export default function DocumentsShow({ document, offices }: DocumentsShowProps)
                                                             )}
                                                             <p className="flex items-center gap-1">
                                                                 <Clock className="size-3" />
-                                                                {formatRelativeTime(routing.routed_at)}
+                                                                Routed {formatRelativeTime(routing.routed_at)}
                                                             </p>
+                                                            {routing.received_at && (
+                                                                <p className="flex items-center gap-1">
+                                                                    <CheckCircle className="size-3" />
+                                                                    Received {formatRelativeTime(routing.received_at)}
+                                                                    {routing.received_by_user && (
+                                                                        <span className="ml-1">by {routing.received_by_user.name}</span>
+                                                                    )}
+                                                                </p>
+                                                            )}
+                                                            {routing.received_at && routing.routed_at && (
+                                                                <p className="text-xs text-muted-foreground/80">
+                                                                    Routing time: {calculateRoutingTime(routing.routed_at, routing.received_at)}
+                                                                </p>
+                                                            )}
                                                             {routing.remarks && (
                                                                 <p className="mt-1 italic">"{routing.remarks}"</p>
                                                             )}
                                                         </div>
                                                     </div>
                                                 </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </CardContent>
+                            </Card>
+                        )}
+
+                        {/* Show copies if this is the main document */}
+                        {!document.is_copy && document.copies && document.copies.length > 0 && (
+                            <Card>
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <FileText className="size-5" />
+                                        Document Copies ({document.copies.length})
+                                    </CardTitle>
+                                    <CardDescription>
+                                        Copies of this document routed to different offices. Each copy maintains its own routing history.
+                                    </CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="space-y-6">
+                                        {document.copies.map((copy) => (
+                                            <div key={copy.id} className="rounded-lg border p-4 space-y-3">
+                                                <div className="flex items-start justify-between">
+                                                    <div className="flex-1">
+                                                        <div className="flex items-center gap-2 mb-2">
+                                                            <h4 className="font-semibold">{copy.title}</h4>
+                                                            <Badge variant="secondary">Copy #{copy.copy_number}</Badge>
+                                                            <Badge variant={getStatusBadgeVariant(copy.status)}>
+                                                                {copy.status.replace('_', ' ')}
+                                                            </Badge>
+                                                        </div>
+                                                        <p className="text-sm text-muted-foreground mb-2">
+                                                            Tracking: <span className="font-mono">{copy.tracking_number}</span>
+                                                        </p>
+                                                        {copy.current_office && (
+                                                            <p className="text-sm text-muted-foreground">
+                                                                Current Office: <span className="font-medium">{copy.current_office.name}</span>
+                                                            </p>
+                                                        )}
+                                                    </div>
+                                                    <Button variant="outline" size="sm" asChild>
+                                                        <Link href={show(copy.id).url}>
+                                                            View Copy
+                                                        </Link>
+                                                    </Button>
+                                                </div>
+
+                                                {/* Copy's routing history */}
+                                                {copy.routings && copy.routings.length > 0 && (
+                                                    <div className="mt-4 pt-4 border-t">
+                                                        <p className="text-sm font-medium mb-3 text-muted-foreground">Copy Routing History:</p>
+                                                        <div className="space-y-3">
+                                                            {copy.routings.map((routing, index) => (
+                                                                <div key={routing.id} className="relative pl-6">
+                                                                    {index < copy.routings!.length - 1 && (
+                                                                        <div className="absolute left-2 top-6 bottom-0 w-0.5 bg-border" />
+                                                                    )}
+                                                                    <div className="flex items-start gap-2">
+                                                                        <div className="mt-1 flex size-4 items-center justify-center rounded-full bg-secondary/50">
+                                                                            <Building2 className="size-2 text-muted-foreground" />
+                                                                        </div>
+                                                                        <div className="flex-1 space-y-1">
+                                                                            <div className="flex items-center gap-2">
+                                                                                <p className="text-sm font-medium">
+                                                                                    {routing.from_office?.name || 'Origin'} → {routing.to_office?.name}
+                                                                                </p>
+                                                                                <Badge variant={routing.status === 'received' ? 'default' : 'outline'} className="text-xs">
+                                                                                    {routing.status.replace('_', ' ')}
+                                                                                </Badge>
+                                                                            </div>
+                                                                            <div className="text-muted-foreground text-xs space-y-0.5">
+                                                                                <p className="flex items-center gap-1">
+                                                                                    <Clock className="size-2.5" />
+                                                                                    Routed {formatRelativeTime(routing.routed_at)}
+                                                                                </p>
+                                                                                {routing.received_at && (
+                                                                                    <p className="flex items-center gap-1">
+                                                                                        <CheckCircle className="size-2.5" />
+                                                                                        Received {formatRelativeTime(routing.received_at)}
+                                                                                    </p>
+                                                                                )}
+                                                                                {routing.remarks && (
+                                                                                    <p className="mt-1 italic text-xs">"{routing.remarks}"</p>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
                                         ))}
                                     </div>
@@ -448,9 +697,34 @@ export default function DocumentsShow({ document, offices }: DocumentsShowProps)
                                 <CardTitle>Quick Actions</CardTitle>
                             </CardHeader>
                             <CardContent className="space-y-4">
+                                {/* Reroute Document Button - shown when document is in transit to another office */}
+                                {isInTransitToOtherOffice && outgoingRouting && (
+                                    <Button
+                                        className="w-full justify-start"
+                                        variant="destructive"
+                                        onClick={() => {
+                                            if (confirm(`Cancel the routing to ${outgoingRouting.to_office?.name}? This will cancel the current route.`)) {
+                                                router.delete(`/documents/${document.id}/routings/${outgoingRouting.id}/cancel`, {
+                                                    preserveScroll: true,
+                                                    onSuccess: () => {
+                                                        // Success handled by redirect
+                                                    },
+                                                });
+                                            }
+                                        }}
+                                    >
+                                        <Route className="size-4 mr-2" />
+                                        Reroute Document
+                                    </Button>
+                                )}
+
                                 <Dialog open={routeDialogOpen} onOpenChange={setRouteDialogOpen}>
                                     <DialogTrigger asChild>
-                                        <Button className="w-full justify-start" variant="outline">
+                                        <Button
+                                            className="w-full justify-start"
+                                            variant="outline"
+                                            disabled={shouldDisableQuickActions}
+                                        >
                                             <Route className="size-4 mr-2" />
                                             Route Document
                                         </Button>
@@ -463,29 +737,84 @@ export default function DocumentsShow({ document, offices }: DocumentsShowProps)
                                             </DialogDescription>
                                         </DialogHeader>
                                         <form onSubmit={handleRouteSubmit} className="space-y-4">
-                                            <div className="grid gap-2">
-                                                <Label htmlFor="to_office_id">
-                                                    Destination Office <span className="text-destructive">*</span>
+                                            <div className="flex items-center space-x-2">
+                                                <Checkbox
+                                                    id="create_copies"
+                                                    checked={routeForm.data.create_copies}
+                                                    onCheckedChange={(checked) => {
+                                                        routeForm.setData('create_copies', checked as boolean);
+                                                        if (!checked) {
+                                                            routeForm.setData('to_office_ids', []);
+                                                        } else {
+                                                            routeForm.setData('to_office_id', null);
+                                                        }
+                                                    }}
+                                                />
+                                                <Label htmlFor="create_copies" className="cursor-pointer">
+                                                    Create copies for multiple offices (for distribution)
                                                 </Label>
-                                                <Select
-                                                    value={routeForm.data.to_office_id ? String(routeForm.data.to_office_id) : undefined}
-                                                    onValueChange={(value) => routeForm.setData('to_office_id', Number(value))}
-                                                >
-                                                    <SelectTrigger>
-                                                        <SelectValue placeholder="Select destination office" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
+                                            </div>
+
+                                            {!routeForm.data.create_copies ? (
+                                                <div className="grid gap-2">
+                                                    <Label htmlFor="to_office_id">
+                                                        Destination Office <span className="text-destructive">*</span>
+                                                    </Label>
+                                                    <Select
+                                                        value={routeForm.data.to_office_id ? String(routeForm.data.to_office_id) : undefined}
+                                                        onValueChange={(value) => routeForm.setData('to_office_id', Number(value))}
+                                                    >
+                                                        <SelectTrigger>
+                                                            <SelectValue placeholder="Select destination office" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {offices
+                                                                .filter((office) => office.id !== document.current_office_id)
+                                                                .map((office) => (
+                                                                    <SelectItem key={office.id} value={String(office.id)}>
+                                                                        {office.name}
+                                                                    </SelectItem>
+                                                                ))}
+                                                        </SelectContent>
+                                                    </Select>
+                                                    <InputError message={routeForm.errors.to_office_id} />
+                                                </div>
+                                            ) : (
+                                                <div className="grid gap-2">
+                                                    <Label htmlFor="to_office_ids">
+                                                        Destination Offices <span className="text-destructive">*</span>
+                                                    </Label>
+                                                    <div className="border rounded-md p-3 max-h-60 overflow-y-auto space-y-2">
                                                         {offices
                                                             .filter((office) => office.id !== document.current_office_id)
                                                             .map((office) => (
-                                                                <SelectItem key={office.id} value={String(office.id)}>
-                                                                    {office.name}
-                                                                </SelectItem>
+                                                                <div key={office.id} className="flex items-center space-x-2">
+                                                                    <Checkbox
+                                                                        id={`office_${office.id}`}
+                                                                        checked={routeForm.data.to_office_ids?.includes(office.id) || false}
+                                                                        onCheckedChange={(checked) => {
+                                                                            const currentIds = routeForm.data.to_office_ids || [];
+                                                                            if (checked) {
+                                                                                routeForm.setData('to_office_ids', [...currentIds, office.id]);
+                                                                            } else {
+                                                                                routeForm.setData('to_office_ids', currentIds.filter(id => id !== office.id));
+                                                                            }
+                                                                        }}
+                                                                    />
+                                                                    <Label htmlFor={`office_${office.id}`} className="cursor-pointer font-normal">
+                                                                        {office.name}
+                                                                    </Label>
+                                                                </div>
                                                             ))}
-                                                    </SelectContent>
-                                                </Select>
-                                                <InputError message={routeForm.errors.to_office_id} />
-                                            </div>
+                                                    </div>
+                                                    <InputError message={routeForm.errors.to_office_ids} />
+                                                    {routeForm.data.to_office_ids && routeForm.data.to_office_ids.length > 0 && (
+                                                        <p className="text-sm text-muted-foreground">
+                                                            {routeForm.data.to_office_ids.length} office{routeForm.data.to_office_ids.length !== 1 ? 's' : ''} selected
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            )}
 
                                             <div className="grid gap-2">
                                                 <Label htmlFor="remarks">Remarks (Optional)</Label>
@@ -513,18 +842,132 @@ export default function DocumentsShow({ document, offices }: DocumentsShowProps)
                                                 </Button>
                                                 <Button
                                                     type="submit"
-                                                    disabled={routeForm.processing || !routeForm.data.to_office_id}
+                                                    disabled={
+                                                        routeForm.processing ||
+                                                        (!routeForm.data.to_office_id && (!routeForm.data.to_office_ids || routeForm.data.to_office_ids.length === 0))
+                                                    }
                                                 >
-                                                    {routeForm.processing ? 'Routing...' : 'Route Document'}
+                                                    {routeForm.processing
+                                                        ? 'Routing...'
+                                                        : routeForm.data.create_copies
+                                                            ? `Create ${routeForm.data.to_office_ids?.length || 0} Copies & Route`
+                                                            : 'Route Document'}
                                                 </Button>
                                             </DialogFooter>
                                         </form>
                                     </DialogContent>
                                 </Dialog>
-                                <Button className="w-full justify-start" variant="outline">
-                                    <FileText className="size-4 mr-2" />
-                                    Add Action
-                                </Button>
+                                <Dialog open={actionDialogOpen} onOpenChange={setActionDialogOpen}>
+                                    <DialogTrigger asChild>
+                                        <Button
+                                            className="w-full justify-start"
+                                            variant="outline"
+                                            disabled={shouldDisableQuickActions}
+                                        >
+                                            <FileText className="size-4 mr-2" />
+                                            Add Action
+                                        </Button>
+                                    </DialogTrigger>
+                                    <DialogContent>
+                                        <DialogHeader>
+                                            <DialogTitle>Add Action</DialogTitle>
+                                            <DialogDescription>
+                                                Record an action taken on this document by your office.
+                                            </DialogDescription>
+                                        </DialogHeader>
+                                        <form onSubmit={handleActionSubmit} className="space-y-4">
+                                            <div className="grid gap-2">
+                                                <Label htmlFor="action_type">
+                                                    Action Type <span className="text-destructive">*</span>
+                                                </Label>
+                                                <Select
+                                                    value={actionForm.data.action_type}
+                                                    onValueChange={(value) => actionForm.setData('action_type', value as typeof actionForm.data.action_type)}
+                                                >
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Select action type" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="approve">Approve</SelectItem>
+                                                        <SelectItem value="note">Note</SelectItem>
+                                                        <SelectItem value="comply">Comply</SelectItem>
+                                                        <SelectItem value="sign">Sign</SelectItem>
+                                                        <SelectItem value="return">Return</SelectItem>
+                                                        <SelectItem value="forward">Forward</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                                <InputError message={actionForm.errors.action_type} />
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                <Label htmlFor="remarks">Remarks (Optional)</Label>
+                                                <Textarea
+                                                    id="remarks"
+                                                    name="remarks"
+                                                    value={actionForm.data.remarks}
+                                                    onChange={(e) => actionForm.setData('remarks', e.target.value)}
+                                                    rows={4}
+                                                    placeholder="Add any remarks or notes about this action..."
+                                                />
+                                                <InputError message={actionForm.errors.remarks} />
+                                            </div>
+
+                                            <div className="grid gap-2">
+                                                <Label htmlFor="memo_file">Memo File (Optional)</Label>
+                                                <Input
+                                                    id="memo_file"
+                                                    type="file"
+                                                    accept=".pdf,.doc,.docx"
+                                                    onChange={(e) => {
+                                                        const file = e.target.files?.[0];
+                                                        if (file) {
+                                                            actionForm.setData('memo_file', file);
+                                                        }
+                                                    }}
+                                                />
+                                                <p className="text-muted-foreground text-xs">
+                                                    PDF or Word document (max 10MB)
+                                                </p>
+                                                <InputError message={actionForm.errors.memo_file} />
+                                            </div>
+
+                                            <div className="flex items-center space-x-2">
+                                                <Checkbox
+                                                    id="is_office_head_approval"
+                                                    checked={actionForm.data.is_office_head_approval}
+                                                    onCheckedChange={(checked) => {
+                                                        actionForm.setData('is_office_head_approval', checked === true);
+                                                    }}
+                                                />
+                                                <Label
+                                                    htmlFor="is_office_head_approval"
+                                                    className="text-sm font-normal cursor-pointer"
+                                                >
+                                                    Office Head Approval
+                                                </Label>
+                                            </div>
+
+                                            <DialogFooter>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    onClick={() => {
+                                                        setActionDialogOpen(false);
+                                                        actionForm.reset();
+                                                    }}
+                                                >
+                                                    Cancel
+                                                </Button>
+                                                <Button
+                                                    type="submit"
+                                                    disabled={actionForm.processing || !actionForm.data.action_type}
+                                                >
+                                                    {actionForm.processing ? 'Submitting...' : 'Add Action'}
+                                                </Button>
+                                            </DialogFooter>
+                                        </form>
+                                    </DialogContent>
+                                </Dialog>
                                 <div className="space-y-2">
                                     <p className="text-sm font-medium">Upload Attachment</p>
                                     <Form

@@ -86,6 +86,9 @@ export interface Document {
     archived_at?: string;
     created_at: string;
     updated_at: string;
+    parent_document_id?: number;
+    is_copy: boolean;
+    copy_number?: number;
     current_office?: Office;
     receiving_office?: Office;
     creator?: User;
@@ -94,6 +97,11 @@ export interface Document {
     actions?: DocumentAction[];
     attachments?: DocumentAttachment[];
     qr_code?: QRCode;
+    parent_document?: Document;
+    copies?: Document[];
+    is_originating_office?: boolean;
+    is_incoming_to_office?: boolean;
+    receivableRouting?: DocumentRouting | null;
 }
 
 export interface DocumentRouting {

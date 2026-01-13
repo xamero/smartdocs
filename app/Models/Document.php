@@ -32,6 +32,9 @@ class Document extends Model
         'is_archived',
         'archived_at',
         'metadata',
+        'parent_document_id',
+        'is_copy',
+        'copy_number',
     ];
 
     protected function casts(): array
@@ -42,6 +45,8 @@ class Document extends Model
             'archived_at' => 'date',
             'is_merged' => 'boolean',
             'is_archived' => 'boolean',
+            'is_copy' => 'boolean',
+            'copy_number' => 'integer',
             'metadata' => 'array',
         ];
     }
@@ -89,5 +94,40 @@ class Document extends Model
     public function mergedDocumentItems(): HasMany
     {
         return $this->hasMany(MergedDocumentItem::class);
+    }
+
+    public function parentDocument(): BelongsTo
+    {
+        return $this->belongsTo(Document::class, 'parent_document_id');
+    }
+
+    public function copies(): HasMany
+    {
+        return $this->hasMany(Document::class, 'parent_document_id');
+    }
+
+    /**
+     * Get main document (either self if main, or parent if copy)
+     */
+    public function getMainDocumentAttribute(): Document
+    {
+        return $this->is_copy && $this->parentDocument ? $this->parentDocument : $this;
+    }
+
+    /**
+     * Get all routings including main document and copies
+     */
+    public function getAllRoutings(): \Illuminate\Database\Eloquent\Collection
+    {
+        $routings = $this->routings;
+
+        if (! $this->is_copy) {
+            // If main document, also get routings from all copies
+            foreach ($this->copies as $copy) {
+                $routings = $routings->merge($copy->routings);
+            }
+        }
+
+        return $routings->sortBy('routed_at');
     }
 }

@@ -23,8 +23,29 @@ class DocumentController extends Controller
 
     public function index(Request $request): Response
     {
+        $user = $request->user();
         $query = Document::with(['currentOffice', 'creator', 'qrCode'])
             ->latest();
+
+        // Apply access control: non-admin users can only see documents they have access to
+        if ($user->role !== 'admin') {
+            if ($user->office_id) {
+                $query->where(function ($q) use ($user) {
+                    $q->where('current_office_id', $user->office_id)
+                        ->orWhereHas('creator', function ($creatorQuery) use ($user) {
+                            $creatorQuery->where('office_id', $user->office_id);
+                        })
+                        ->orWhereHas('routings', function ($routingQuery) use ($user) {
+                            $routingQuery
+                                ->where('to_office_id', $user->office_id)
+                                ->whereIn('status', ['in_transit', 'pending']);
+                        });
+                });
+            } else {
+                // User without office can't see any documents
+                $query->whereRaw('1 = 0');
+            }
+        }
 
         // Search
         if ($request->has('search')) {
@@ -61,6 +82,18 @@ class DocumentController extends Controller
             $query->where('current_office_id', $request->office_id);
         }
 
+        // My Office filter: automatically filter by user's office (including in-transit/pending to their office)
+        if ($request->has('my_office') && $request->boolean('my_office') && $request->user()?->office_id) {
+            $query->where(function ($q) use ($request) {
+                $q->where('current_office_id', $request->user()->office_id)
+                    ->orWhereHas('routings', function ($routingQuery) use ($request) {
+                        $routingQuery
+                            ->where('to_office_id', $request->user()->office_id)
+                            ->whereIn('status', ['in_transit', 'pending']);
+                    });
+            });
+        }
+
         // Overdue filter: documents with date_due < today and not completed/archived/returned
         if ($request->has('overdue') && $request->boolean('overdue')) {
             $query->whereNotNull('date_due')
@@ -78,9 +111,27 @@ class DocumentController extends Controller
 
         $documents = $query->paginate(15)->withQueryString();
 
+        // Append convenience flags for the frontend
+        $documents->through(function (Document $document) use ($user) {
+            if (! $document->relationLoaded('creator')) {
+                $document->load('creator');
+            }
+
+            $isOriginatingOffice = $document->creator && $document->creator->office_id === $user->office_id;
+            $isIncomingToOffice = $document->routings()
+                ->where('to_office_id', $user->office_id)
+                ->whereIn('status', ['in_transit', 'pending'])
+                ->exists();
+
+            return array_merge($document->toArray(), [
+                'is_originating_office' => $isOriginatingOffice,
+                'is_incoming_to_office' => $isIncomingToOffice,
+            ]);
+        });
+
         return Inertia::render('Documents/Index', [
             'documents' => $documents,
-            'filters' => $request->only(['search', 'status', 'document_type', 'priority', 'office_id']),
+            'filters' => $request->only(['search', 'status', 'document_type', 'priority', 'office_id', 'my_office', 'overdue', 'due_this_week']),
             'offices' => Office::where('is_active', true)->orderBy('name')->get(),
         ]);
     }
@@ -89,7 +140,7 @@ class DocumentController extends Controller
     {
         return Inertia::render('Documents/Create', [
             'offices' => Office::where('is_active', true)->orderBy('name')->get(),
-           
+
         ]);
     }
 
@@ -125,8 +176,10 @@ class DocumentController extends Controller
             ->with('success', 'Document created successfully.');
     }
 
-    public function show(Document $document): Response
+    public function show(Request $request, Document $document): Response
     {
+        $userOfficeId = $request->user()?->office_id;
+
         $document->load([
             'currentOffice',
             'receivingOffice',
@@ -140,16 +193,58 @@ class DocumentController extends Controller
             'actions.actionBy',
             'attachments.uploadedBy',
             'qrCode',
+            'parentDocument.currentOffice',
+            'parentDocument.creator',
+            'copies.currentOffice',
+            'copies.routings.fromOffice',
+            'copies.routings.toOffice',
+            'copies.routings.routedBy',
+            'copies.routings.receivedBy',
         ]);
+
+        $receivableRouting = null;
+        if ($userOfficeId) {
+            $receivableRouting = $document->routings()
+                ->where('to_office_id', $userOfficeId)
+                ->whereIn('status', ['in_transit', 'pending'])
+                ->latest('routed_at')
+                ->first();
+        }
+
+        $isOriginatingOffice = $document->creator && $document->creator->office_id === $userOfficeId;
+        $isIncomingToOffice = $document->routings()
+            ->where('to_office_id', $userOfficeId)
+            ->whereIn('status', ['in_transit', 'pending'])
+            ->exists();
+
+        // Check if document is in transit to another office (not user's office)
+        $outgoingRouting = null;
+        $isInTransitToOtherOffice = false;
+        if ($userOfficeId) {
+            $outgoingRouting = $document->routings()
+                ->where('from_office_id', $userOfficeId)
+                ->whereIn('status', ['in_transit', 'pending'])
+                ->latest('routed_at')
+                ->first();
+
+            $isInTransitToOtherOffice = $outgoingRouting !== null;
+        }
 
         return Inertia::render('Documents/Show', [
             'document' => $document,
             'offices' => Office::where('is_active', true)->orderBy('name')->get(),
+            'receivableRouting' => $receivableRouting,
+            'isOriginatingOffice' => $isOriginatingOffice,
+            'isIncomingToOffice' => $isIncomingToOffice,
+            'outgoingRouting' => $outgoingRouting,
+            'isInTransitToOtherOffice' => $isInTransitToOtherOffice,
         ]);
     }
 
     public function edit(Document $document): Response
     {
+        $this->authorize('canEdit', $document);
+
         return Inertia::render('Documents/Edit', [
             'document' => $document,
             'offices' => Office::where('is_active', true)->orderBy('name')->get(),
@@ -206,6 +301,8 @@ class DocumentController extends Controller
 
     public function archive(Document $document): RedirectResponse
     {
+        $this->authorize('archive', $document);
+
         $document->update([
             'status' => 'archived',
             'is_archived' => true,
@@ -218,6 +315,8 @@ class DocumentController extends Controller
 
     public function restore(Document $document): RedirectResponse
     {
+        $this->authorize('archive', $document);
+
         $document->update([
             'status' => 'completed',
             'is_archived' => false,
@@ -267,6 +366,7 @@ class DocumentController extends Controller
 
             if (! $data) {
                 $failed++;
+
                 continue;
             }
 

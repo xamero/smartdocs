@@ -31,6 +31,7 @@ interface DocumentsIndexProps {
         document_type?: string;
         priority?: string;
         office_id?: string;
+        my_office?: boolean;
         overdue?: boolean;
         due_this_week?: boolean;
     };
@@ -76,7 +77,11 @@ export default function DocumentsIndex({
         setDocumentType('');
         setPriority('');
         setOfficeId('');
-        router.get(index().url, {}, { preserveState: true, replace: true });
+        router.get(
+            index().url,
+            {},
+            { preserveState: true, replace: true }
+        );
     };
 
     const getStatusBadgeVariant = (status: Document['status']) => {
@@ -140,12 +145,18 @@ export default function DocumentsIndex({
                 <div className="flex items-center justify-between">
                     <div>
                         <h1 className="text-2xl font-semibold">
-                            {status === 'archived' ? 'Archived Documents' : 'Documents'}
+                            {filters.my_office
+                                ? 'My Office Documents'
+                                : status === 'archived'
+                                  ? 'Archived Documents'
+                                  : 'Documents'}
                         </h1>
                         <p className="text-muted-foreground text-sm">
-                            {status === 'archived'
-                                ? 'View and manage archived documents'
-                                : 'Manage and track all documents'}
+                            {filters.my_office
+                                ? 'View and manage documents in your office'
+                                : status === 'archived'
+                                  ? 'View and manage archived documents'
+                                  : 'Manage and track all documents'}
                         </p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -189,7 +200,25 @@ export default function DocumentsIndex({
                             <div className="flex items-center gap-2 text-xs">
                                 <Button
                                     type="button"
-                                    variant={status !== 'archived' && !filters.overdue && !filters.due_this_week ? 'default' : 'outline'}
+                                    variant={filters.my_office ? 'default' : 'outline'}
+                                    size="sm"
+                                    onClick={() => {
+                                        router.get(
+                                            index().url,
+                                            {
+                                                ...filters,
+                                                my_office: filters.my_office ? undefined : true,
+                                                office_id: undefined,
+                                            },
+                                            { preserveState: true, replace: true }
+                                        );
+                                    }}
+                                >
+                                    My Office
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant={status !== 'archived' && !filters.overdue && !filters.due_this_week && !filters.my_office ? 'default' : 'outline'}
                                     size="sm"
                                     onClick={() => {
                                         setStatus('');
@@ -200,6 +229,7 @@ export default function DocumentsIndex({
                                                 status: undefined,
                                                 overdue: undefined,
                                                 due_this_week: undefined,
+                                                my_office: undefined,
                                             },
                                             { preserveState: true, replace: true }
                                         );
@@ -220,6 +250,7 @@ export default function DocumentsIndex({
                                                 status: 'archived',
                                                 overdue: undefined,
                                                 due_this_week: undefined,
+                                                my_office: undefined,
                                             },
                                             { preserveState: true, replace: true }
                                         );
@@ -239,6 +270,7 @@ export default function DocumentsIndex({
                                                 overdue: filters.overdue ? undefined : true,
                                                 due_this_week: undefined,
                                                 status: undefined,
+                                                my_office: undefined,
                                             },
                                             { preserveState: true, replace: true }
                                         );
@@ -258,6 +290,7 @@ export default function DocumentsIndex({
                                                 due_this_week: filters.due_this_week ? undefined : true,
                                                 overdue: undefined,
                                                 status: undefined,
+                                                my_office: undefined,
                                             },
                                             { preserveState: true, replace: true }
                                         );
@@ -325,7 +358,24 @@ export default function DocumentsIndex({
                                 </SelectContent>
                             </Select>
 
-                            <Select value={officeId || 'all'} onValueChange={(value) => setOfficeId(value === 'all' ? '' : value)}>
+                            <Select
+                                value={officeId || 'all'}
+                                onValueChange={(value) => {
+                                    setOfficeId(value === 'all' ? '' : value);
+                                    if (value !== 'all') {
+                                        // Clear my_office filter when selecting a specific office
+                                        router.get(
+                                            index().url,
+                                            {
+                                                ...filters,
+                                                office_id: value === 'all' ? undefined : value,
+                                                my_office: undefined,
+                                            },
+                                            { preserveState: true, replace: true }
+                                        );
+                                    }
+                                }}
+                            >
                                 <SelectTrigger className="w-[180px]">
                                     <SelectValue placeholder="Office" />
                                 </SelectTrigger>
@@ -372,7 +422,7 @@ export default function DocumentsIndex({
                                     <Link
                                         key={document.id}
                                         href={show(document.id).url}
-                                        className={`block rounded-lg border p-4 transition-colors hover:bg-accent ${
+                                        className={`block rounded-lg border p-4 transition-colors hover:bg-accent cursor-pointer ${
                                             document.is_archived ? 'opacity-75 bg-muted/30' : ''
                                         }`}
                                     >
@@ -393,6 +443,12 @@ export default function DocumentsIndex({
                                                     <Badge variant={getPriorityBadgeVariant(document.priority)}>
                                                         {document.priority}
                                                     </Badge>
+                                                    {document.is_originating_office && (
+                                                        <Badge variant="outline">From your office</Badge>
+                                                    )}
+                                                    {!document.is_originating_office && document.is_incoming_to_office && (
+                                                        <Badge variant="secondary">Incoming to your office</Badge>
+                                                    )}
                                                 </div>
                                                 <div className="text-muted-foreground text-sm space-y-1">
                                                     <p>
